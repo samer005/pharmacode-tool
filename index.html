@@ -93,6 +93,13 @@ input[type=file]{border:1px dashed var(--border);background:var(--bg);color:var(
 }
 
 </style>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1c1a17">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pharmacode">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
 </head>
 <body>
 
@@ -907,6 +914,14 @@ document.getElementById('pcode').addEventListener('input', () => {
 document.getElementById('patternInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') decodeManualPattern();
 });
+</script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js').catch(() => {});
+  });
+}
 </script>
 </body>
 </html>
