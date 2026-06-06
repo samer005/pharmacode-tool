@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pharmacode-mobile-pwa-v1';
+const CACHE_NAME = 'pharmacode-mobile-pwa-v2-crop';
 const ASSETS = [
   './',
   './index.html',

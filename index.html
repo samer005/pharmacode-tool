@@ -53,7 +53,9 @@ input[type=file]{border:1px dashed var(--border);background:var(--bg);color:var(
 .bar-sequence{font-family:var(--mono);background:#fafaf8;border:1px solid var(--border);border-radius:5px;padding:8px;overflow-wrap:anywhere;color:var(--text)}
 .reader-actions{display:flex;gap:8px;margin-top:10px}
 .reader-actions .btn{width:auto;min-width:140px}
-#scan-canvas{display:block;max-width:100%;height:auto;border:1px solid var(--border);background:#fff;margin-top:10px}
+#scan-canvas{display:block;max-width:100%;height:auto;border:1px solid var(--border);background:#fff;margin-top:10px;touch-action:none;cursor:crosshair}
+.crop-hint{font-size:10px;color:var(--text2);margin-top:8px;line-height:1.45}
+.crop-hint strong{color:var(--text)}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(6px);background:#1c1a17;color:#fff;font-size:11px;font-family:var(--mono);padding:6px 16px;border-radius:20px;opacity:0;transition:all .2s;pointer-events:none}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
@@ -224,10 +226,14 @@ input[type=file]{border:1px dashed var(--border);background:var(--bg);color:var(
         <span><strong id="rConfidence">—</strong>Confidence</span>
       </div>
       <div class="bar-sequence" id="rPattern">Pattern: —</div>
-      <div id="rMessage" style="margin-top:8px">Upload an upright pharmacode image, then click Parse Photo.</div>
+      <div id="rMessage" style="margin-top:8px">Upload an upright pharmacode image, then adjust the crop box if needed.</div>
       <div class="reader-actions">
+        <button class="btn btn-primary" onclick="decodeSelectedCrop()">Decode Selected Area</button>
+        <button class="btn btn-outline" onclick="decodeFullImage()">Decode Full Image</button>
+        <button class="btn btn-outline" onclick="resetCropBox()">Reset Crop</button>
         <button class="btn btn-outline" id="useReadBtn" onclick="useReaderResult()">Use detected number</button>
       </div>
+      <div class="crop-hint"><strong>Crop mode:</strong> drag inside the box to move it. Drag near the edges/corners to resize it. Decode only the white label/barcode area for best camera results.</div>
       <canvas id="scan-canvas"></canvas>
     </div>
   </div>
@@ -589,18 +595,16 @@ function dlPDF() {
 }
 
 
-/* ── Pharmacode photo reader ─────────────────────────────────
-   This simple reader works inside the browser:
-   1) Load the uploaded image into a canvas.
-   2) Convert pixels to grayscale and calculate an Otsu threshold.
-   3) Find the strongest horizontal band of dark vertical bars.
-   4) Project dark pixels vertically to detect bar runs.
-   5) Classify detected bar widths as narrow/wide without deleting valid thin bars.
-   6) Decode using the same right-to-left Pharmacode rule.
-   Practical limits: the photo should be upright and not heavily skewed.
-   A single-bar image cannot be reliably classified as narrow vs wide without a physical scale/reference.
+/* ── Pharmacode photo reader + manual crop ────────────────
+   Workflow:
+   1) Load camera/upload image into the canvas.
+   2) Show a movable crop rectangle so phone photos can be decoded from only the barcode/label area.
+   3) Decode either the selected crop or the full image.
+   4) Detect dark vertical bar runs and classify as narrow/wide.
+   Practical limits: the photo should be reasonably upright and not heavily skewed.
    ──────────────────────────────────────────────────────────── */
 let _readerValue = null;
+let _scanState = null;
 
 function median(arr) {
   if (!arr.length) return 0;
@@ -626,10 +630,7 @@ function otsuThreshold(gray) {
     const mB = sumB / wB;
     const mF = (sum - sumB) / wF;
     const between = wB * wF * Math.pow(mB - mF, 2);
-    if (between > maxVar) {
-      maxVar = between;
-      threshold = t;
-    }
+    if (between > maxVar) { maxVar = between; threshold = t; }
   }
   return threshold;
 }
@@ -650,18 +651,13 @@ function groupRuns(flags) {
 
 function classifyBarWidths(widths, gaps) {
   if (widths.length === 1) {
-    return {
-      bars: null,
-      confidence: 'Ambiguous',
-      message: 'Only one bar was detected. From a photo alone, one bar cannot be reliably classified as narrow value 1 or wide value 2 without a scale/reference.'
-    };
+    return { bars: null, confidence: 'Ambiguous', message: 'Only one bar was detected. One bar cannot be reliably classified as narrow value 1 or wide value 2 without a scale/reference.' };
   }
 
   const minW = Math.min(...widths);
   const maxW = Math.max(...widths);
   const medGap = median(gaps);
 
-  // If all detected bars have almost the same width, infer narrow/wide from the normal Laetus gap relationship where gap ≈ 2×narrow and ≈ 0.67×wide.
   if (maxW / Math.max(minW, 1) < 1.55) {
     const medBar = median(widths);
     const ratioToGap = medGap ? medBar / medGap : 0;
@@ -669,13 +665,10 @@ function classifyBarWidths(widths, gaps) {
     return {
       bars: widths.map(() => allWide ? 1 : 0),
       confidence: ratioToGap < 0.8 || ratioToGap > 1.3 ? 'Medium' : 'Low',
-      message: allWide
-        ? 'All bars look similar and wider than the gaps, so they were interpreted as wide bars.'
-        : 'All bars look similar and narrower than the gaps, so they were interpreted as narrow bars.'
+      message: allWide ? 'All bars look similar and wider than the gaps, so they were interpreted as wide bars.' : 'All bars look similar and narrower than the gaps, so they were interpreted as narrow bars.'
     };
   }
 
-  // Two-cluster classification for normal mixed narrow/wide codes.
   let c1 = minW, c2 = maxW;
   for (let iter = 0; iter < 12; iter++) {
     const g1 = [], g2 = [];
@@ -693,23 +686,15 @@ function classifyBarWidths(widths, gaps) {
   if (ratio < 2.0 || ratio > 4.5) confidence = 'Low';
   else if (ratio < 2.4 || ratio > 3.8) confidence = 'Medium';
 
-  return {
-    bars,
-    confidence,
-    message: `Detected narrow/wide width ratio ≈ ${ratio.toFixed(2)}:1.`
-  };
+  return { bars, confidence, message: `Detected narrow/wide width ratio ≈ ${ratio.toFixed(2)}:1.` };
 }
 
 function parseImageFile(file, emptyMessage = 'Choose an image first') {
-  if (!file) {
-    toast(emptyMessage);
-    return;
-  }
-
+  if (!file) { toast(emptyMessage); return; }
   const reader = new FileReader();
   reader.onload = e => {
     const img = new Image();
-    img.onload = () => scanPharmacodeImage(img);
+    img.onload = () => loadImageForCrop(img);
     img.onerror = () => toast('Could not load image');
     img.src = e.target.result;
   };
@@ -729,11 +714,10 @@ function parseCameraImage() {
   parseImageFile(file, 'Take a photo first');
 }
 
-function scanPharmacodeImage(img) {
+function loadImageForCrop(img) {
   const panel = document.getElementById('readerPanel');
   const canvas = document.getElementById('scan-canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-
   const maxDim = 1400;
   const scale = Math.min(1, maxDim / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
   const w = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
@@ -744,98 +728,198 @@ function scanPharmacodeImage(img) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(img, 0, 0, w, h);
+
+  _scanState = {
+    canvas, ctx, w, h,
+    img,
+    crop: defaultCropRect(w, h),
+    dragging: false,
+    dragMode: null,
+    startX: 0,
+    startY: 0,
+    startCrop: null
+  };
+
   panel.classList.add('show');
+  document.getElementById('rMessage').textContent = 'Image loaded. Adjust the crop box around the Pharmacode, then tap Decode Selected Area.';
+  installCropEvents();
+  drawCropCanvas();
+  decodeSelectedCrop(true);
+}
 
-  const imageData = ctx.getImageData(0, 0, w, h);
-  const data = imageData.data;
-  const gray = new Uint8Array(w * h);
-  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
-    gray[p] = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+function defaultCropRect(w, h) {
+  // A barcode is usually wide and short. Start with a central band that the user can easily adjust.
+  const cw = Math.round(w * 0.82);
+  const ch = Math.round(h * 0.42);
+  return { x: Math.round((w - cw) / 2), y: Math.round((h - ch) / 2), w: cw, h: ch };
+}
+
+function canvasPoint(evt) {
+  const rect = _scanState.canvas.getBoundingClientRect();
+  const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+  const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+  return {
+    x: (clientX - rect.left) * (_scanState.canvas.width / rect.width),
+    y: (clientY - rect.top) * (_scanState.canvas.height / rect.height)
+  };
+}
+
+function hitTestCrop(x, y) {
+  const c = _scanState.crop;
+  const handle = Math.max(14, Math.min(_scanState.w, _scanState.h) * 0.025);
+  const nearL = Math.abs(x - c.x) <= handle;
+  const nearR = Math.abs(x - (c.x + c.w)) <= handle;
+  const nearT = Math.abs(y - c.y) <= handle;
+  const nearB = Math.abs(y - (c.y + c.h)) <= handle;
+  const inside = x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h;
+  if (!inside && !(nearL || nearR || nearT || nearB)) return null;
+  if (nearL && nearT) return 'nw';
+  if (nearR && nearT) return 'ne';
+  if (nearL && nearB) return 'sw';
+  if (nearR && nearB) return 'se';
+  if (nearL) return 'w';
+  if (nearR) return 'e';
+  if (nearT) return 'n';
+  if (nearB) return 's';
+  if (inside) return 'move';
+  return null;
+}
+
+function installCropEvents() {
+  const canvas = _scanState.canvas;
+  if (canvas._cropInstalled) return;
+  canvas._cropInstalled = true;
+
+  const down = evt => {
+    if (!_scanState) return;
+    const p = canvasPoint(evt);
+    const mode = hitTestCrop(p.x, p.y);
+    if (!mode) return;
+    evt.preventDefault();
+    _scanState.dragging = true;
+    _scanState.dragMode = mode;
+    _scanState.startX = p.x;
+    _scanState.startY = p.y;
+    _scanState.startCrop = { ..._scanState.crop };
+  };
+
+  const move = evt => {
+    if (!_scanState || !_scanState.dragging) return;
+    evt.preventDefault();
+    const p = canvasPoint(evt);
+    updateCropDrag(p.x - _scanState.startX, p.y - _scanState.startY);
+    drawCropCanvas();
+  };
+
+  const up = () => {
+    if (!_scanState) return;
+    _scanState.dragging = false;
+    _scanState.dragMode = null;
+  };
+
+  canvas.addEventListener('mousedown', down);
+  canvas.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', up);
+  canvas.addEventListener('touchstart', down, { passive: false });
+  canvas.addEventListener('touchmove', move, { passive: false });
+  window.addEventListener('touchend', up);
+}
+
+function updateCropDrag(dx, dy) {
+  const s = _scanState;
+  const c0 = s.startCrop;
+  const minW = Math.max(24, s.w * 0.04);
+  const minH = Math.max(18, s.h * 0.035);
+  let x = c0.x, y = c0.y, w = c0.w, h = c0.h;
+  const mode = s.dragMode;
+
+  if (mode === 'move') { x = c0.x + dx; y = c0.y + dy; }
+  else {
+    if (mode.includes('w')) { x = c0.x + dx; w = c0.w - dx; }
+    if (mode.includes('e')) { w = c0.w + dx; }
+    if (mode.includes('n')) { y = c0.y + dy; h = c0.h - dy; }
+    if (mode.includes('s')) { h = c0.h + dy; }
   }
 
-  const otsu = otsuThreshold(gray);
-  const threshold = Math.min(190, Math.max(40, otsu + 10));
-  const rowCounts = new Array(h).fill(0);
+  if (w < minW) { if (mode.includes('w')) x -= (minW - w); w = minW; }
+  if (h < minH) { if (mode.includes('n')) y -= (minH - h); h = minH; }
+  x = Math.max(0, Math.min(x, s.w - w));
+  y = Math.max(0, Math.min(y, s.h - h));
+  if (x + w > s.w) w = s.w - x;
+  if (y + h > s.h) h = s.h - y;
+  s.crop = { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+}
 
-  for (let y = 0; y < h; y++) {
-    let count = 0;
-    for (let x = 0; x < w; x++) {
-      if (gray[y * w + x] < threshold) count++;
-    }
-    rowCounts[y] = count;
-  }
+function drawCropCanvas(extraOverlay) {
+  if (!_scanState) return;
+  const s = _scanState;
+  const ctx = s.ctx;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, s.w, s.h);
+  ctx.drawImage(s.img, 0, 0, s.w, s.h);
 
-  const maxRow = Math.max(...rowCounts);
-  if (maxRow < Math.max(3, w * 0.002)) {
-    showReaderError('No dark barcode-like area was detected. Try a clearer image with black bars on white background.');
-    return;
-  }
+  if (extraOverlay) extraOverlay(ctx);
 
-  const rowFlags = rowCounts.map(c => c >= Math.max(3, maxRow * 0.30));
-  const rowRuns = groupRuns(rowFlags).filter(r => r.width >= Math.max(4, h * 0.01));
-  if (!rowRuns.length) {
-    showReaderError('Could not isolate the barcode row area. Try cropping closer to the bars.');
-    return;
-  }
-
-  // Pick the row band with the highest dark-pixel mass and enough height.
-  let bestRun = rowRuns[0], bestScore = -1;
-  rowRuns.forEach(r => {
-    const mass = rowCounts.slice(r.start, r.end + 1).reduce((a, b) => a + b, 0);
-    const score = mass * Math.sqrt(r.width);
-    if (score > bestScore) { bestScore = score; bestRun = r; }
+  const c = s.crop;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.fillRect(0, 0, s.w, c.y);
+  ctx.fillRect(0, c.y + c.h, s.w, s.h - c.y - c.h);
+  ctx.fillRect(0, c.y, c.x, c.h);
+  ctx.fillRect(c.x + c.w, c.y, s.w - c.x - c.w, c.h);
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = Math.max(2, Math.round(Math.max(s.w, s.h) / 450));
+  ctx.strokeRect(c.x + 0.5, c.y + 0.5, c.w, c.h);
+  ctx.strokeStyle = '#1c1a17';
+  ctx.setLineDash([8, 5]);
+  ctx.strokeRect(c.x + 0.5, c.y + 0.5, c.w, c.h);
+  ctx.setLineDash([]);
+  const handle = Math.max(8, Math.min(s.w, s.h) * 0.018);
+  ctx.fillStyle = '#ffffff';
+  [[c.x,c.y],[c.x+c.w,c.y],[c.x,c.y+c.h],[c.x+c.w,c.y+c.h]].forEach(([hx,hy]) => {
+    ctx.fillRect(hx - handle/2, hy - handle/2, handle, handle);
+    ctx.strokeRect(hx - handle/2, hy - handle/2, handle, handle);
   });
+  ctx.restore();
+}
 
-  const padY = Math.max(1, Math.round(bestRun.width * 0.08));
-  const y1 = Math.max(0, bestRun.start - padY);
-  const y2 = Math.min(h - 1, bestRun.end + padY);
-  const bandH = y2 - y1 + 1;
+function resetCropBox() {
+  if (!_scanState) { toast('Load an image first'); return; }
+  _scanState.crop = defaultCropRect(_scanState.w, _scanState.h);
+  drawCropCanvas();
+  toast('Crop reset');
+}
 
-  const colCounts = new Array(w).fill(0);
-  for (let x = 0; x < w; x++) {
-    let count = 0;
-    for (let y = y1; y <= y2; y++) {
-      if (gray[y * w + x] < threshold) count++;
-    }
-    colCounts[x] = count;
-  }
+function decodeFullImage() {
+  if (!_scanState) { toast('Load an image first'); return; }
+  const full = { x: 0, y: 0, w: _scanState.w, h: _scanState.h };
+  decodeRegion(full, false);
+}
 
-  const maxCol = Math.max(...colCounts);
-  const colFlags = colCounts.map(c => c >= Math.max(2, maxCol * 0.45));
-  let barRuns = groupRuns(colFlags).filter(r => r.width >= Math.max(1, Math.round(w * 0.0006)));
+function decodeSelectedCrop(silent = false) {
+  if (!_scanState) { if (!silent) toast('Load an image first'); return; }
+  decodeRegion(_scanState.crop, true, silent);
+}
 
-  // Keep true thin bars. Earlier versions removed runs below ~35% of the median
-  // width; with real/screenshot images that can accidentally delete valid narrow
-  // bars. Pharmacode narrow:wide is normally about 1:3, so a valid narrow bar may
-  // be only 33% of a wide bar. Only remove extreme pixel noise instead.
-  barRuns = barRuns.filter(r => r.width >= 2 || r.width >= Math.round(w * 0.0008));
+function decodeRegion(region, showCrop, silent = false) {
+  const s = _scanState;
+  drawCropCanvas();
+  const ctx = s.ctx;
+  const rx = Math.max(0, Math.round(region.x));
+  const ry = Math.max(0, Math.round(region.y));
+  const rw = Math.max(1, Math.min(s.w - rx, Math.round(region.w)));
+  const rh = Math.max(1, Math.min(s.h - ry, Math.round(region.h)));
+  const imageData = ctx.getImageData(rx, ry, rw, rh);
+  const result = analyzeImageData(imageData, rw, rh);
 
-  // Merge accidental 1–2 px cuts inside the same printed bar caused by anti-aliasing
-  // or faint vertical highlights. Do not merge normal Pharmacode gaps.
-  const mergeGap = Math.max(1, Math.round(w * 0.0008));
-  const mergedRuns = [];
-  barRuns.forEach(r => {
-    const last = mergedRuns[mergedRuns.length - 1];
-    const gap = last ? r.start - last.end - 1 : Infinity;
-    if (last && gap <= mergeGap) {
-      last.end = r.end;
-      last.width = last.end - last.start + 1;
-    } else {
-      mergedRuns.push({ ...r });
-    }
-  });
-  barRuns = mergedRuns;
-
-  if (!barRuns.length) {
-    showReaderError('No vertical bars were detected. Try a higher contrast or more upright image.');
+  if (!result.ok) {
+    showReaderError(result.message, false);
+    drawCropCanvas();
+    if (!silent) toast('Could not parse selected area');
     return;
   }
 
-  const widths = barRuns.map(r => r.width);
-  const gaps = [];
-  for (let i = 1; i < barRuns.length; i++) gaps.push(barRuns[i].start - barRuns[i - 1].end - 1);
-
-  const classified = classifyBarWidths(widths, gaps);
+  const { barRuns, y1, y2, classified } = result;
   if (!classified.bars) {
     document.getElementById('rValue').textContent = '—';
     document.getElementById('rAlt').textContent = '—';
@@ -844,8 +928,8 @@ function scanPharmacodeImage(img) {
     document.getElementById('rPattern').textContent = 'Pattern: ambiguous single bar';
     document.getElementById('rMessage').textContent = classified.message;
     _readerValue = null;
-    drawDetectionOverlay(ctx, barRuns, y1, y2, w, h);
-    toast('Reader result is ambiguous');
+    drawCropCanvas(ctx2 => drawDetectionOverlay(ctx2, barRuns, rx, ry + y1, ry + y2, rw, rh));
+    if (!silent) toast('Reader result is ambiguous');
     return;
   }
 
@@ -860,23 +944,92 @@ function scanPharmacodeImage(img) {
   document.getElementById('rBars').textContent = bars.length;
   document.getElementById('rConfidence').textContent = classified.confidence;
   document.getElementById('rPattern').textContent = `Pattern: ${pattern}`;
-  document.getElementById('rMessage').textContent = `${classified.message} Standard Pharmacode scanning is right-to-left; use the opposite value only if the photo/code is reversed.`;
+  const modeMsg = showCrop ? 'selected crop' : 'full image';
+  document.getElementById('rMessage').textContent = `${classified.message} Decoded from ${modeMsg}. Standard Pharmacode scanning is right-to-left; use the opposite value only if the photo/code is reversed.`;
 
-  drawDetectionOverlay(ctx, barRuns, y1, y2, w, h);
-  toast(`Parsed as ${value}`);
+  drawCropCanvas(ctx2 => drawDetectionOverlay(ctx2, barRuns, rx, ry + y1, ry + y2, rw, rh));
+  if (!silent) toast(`Parsed as ${value}`);
 }
 
-function drawDetectionOverlay(ctx, barRuns, y1, y2, w, h) {
+function analyzeImageData(imageData, w, h) {
+  const data = imageData.data;
+  const gray = new Uint8Array(w * h);
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+    gray[p] = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+  }
+
+  const otsu = otsuThreshold(gray);
+  const threshold = Math.min(210, Math.max(35, otsu + 10));
+  const rowCounts = new Array(h).fill(0);
+
+  for (let y = 0; y < h; y++) {
+    let count = 0;
+    for (let x = 0; x < w; x++) if (gray[y * w + x] < threshold) count++;
+    rowCounts[y] = count;
+  }
+
+  const maxRow = Math.max(...rowCounts);
+  if (maxRow < Math.max(3, w * 0.002)) return { ok: false, message: 'No dark barcode-like area was detected. Crop closer to the black bars on a white background.' };
+
+  const rowFlags = rowCounts.map(c => c >= Math.max(2, maxRow * 0.30));
+  const rowRuns = groupRuns(rowFlags).filter(r => r.width >= Math.max(3, h * 0.006));
+  if (!rowRuns.length) return { ok: false, message: 'Could not isolate the barcode row area. Crop closer to the bars.' };
+
+  let bestRun = rowRuns[0], bestScore = -1;
+  rowRuns.forEach(r => {
+    const mass = rowCounts.slice(r.start, r.end + 1).reduce((a, b) => a + b, 0);
+    const score = mass * Math.sqrt(r.width);
+    if (score > bestScore) { bestScore = score; bestRun = r; }
+  });
+
+  const padY = Math.max(1, Math.round(bestRun.width * 0.08));
+  const y1 = Math.max(0, bestRun.start - padY);
+  const y2 = Math.min(h - 1, bestRun.end + padY);
+
+  const colCounts = new Array(w).fill(0);
+  for (let x = 0; x < w; x++) {
+    let count = 0;
+    for (let y = y1; y <= y2; y++) if (gray[y * w + x] < threshold) count++;
+    colCounts[x] = count;
+  }
+
+  const maxCol = Math.max(...colCounts);
+  const colFlags = colCounts.map(c => c >= Math.max(2, maxCol * 0.45));
+  let barRuns = groupRuns(colFlags).filter(r => r.width >= Math.max(1, Math.round(w * 0.0006)));
+  barRuns = barRuns.filter(r => r.width >= 2 || r.width >= Math.round(w * 0.0008));
+
+  const mergeGap = Math.max(1, Math.round(w * 0.0008));
+  const mergedRuns = [];
+  barRuns.forEach(r => {
+    const last = mergedRuns[mergedRuns.length - 1];
+    const gap = last ? r.start - last.end - 1 : Infinity;
+    if (last && gap <= mergeGap) {
+      last.end = r.end;
+      last.width = last.end - last.start + 1;
+    } else mergedRuns.push({ ...r });
+  });
+  barRuns = mergedRuns;
+
+  if (!barRuns.length) return { ok: false, message: 'No vertical bars were detected. Use the crop box to isolate the Pharmacode.' };
+
+  const widths = barRuns.map(r => r.width);
+  const gaps = [];
+  for (let i = 1; i < barRuns.length; i++) gaps.push(barRuns[i].start - barRuns[i - 1].end - 1);
+  const classified = classifyBarWidths(widths, gaps);
+  return { ok: true, barRuns, y1, y2, classified };
+}
+
+function drawDetectionOverlay(ctx, barRuns, offsetX, absY1, absY2, regionW, regionH) {
   ctx.save();
-  ctx.lineWidth = Math.max(1, Math.round(Math.max(w, h) / 500));
-  ctx.strokeStyle = 'rgba(28,26,23,0.75)';
-  ctx.strokeRect(0.5, y1 + 0.5, w - 1, y2 - y1);
-  ctx.strokeStyle = 'rgba(0,0,0,0.75)';
-  barRuns.forEach(r => ctx.strokeRect(r.start + 0.5, y1 + 0.5, r.width, y2 - y1));
+  ctx.lineWidth = Math.max(1, Math.round(Math.max(_scanState.w, _scanState.h) / 500));
+  ctx.strokeStyle = 'rgba(45,120,45,0.95)';
+  ctx.strokeRect(offsetX + 0.5, absY1 + 0.5, regionW - 1, absY2 - absY1);
+  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  barRuns.forEach(r => ctx.strokeRect(offsetX + r.start + 0.5, absY1 + 0.5, r.width, absY2 - absY1));
   ctx.restore();
 }
 
-function showReaderError(msg) {
+function showReaderError(msg, clearCanvas = true) {
   document.getElementById('readerPanel').classList.add('show');
   document.getElementById('rValue').textContent = '—';
   document.getElementById('rAlt').textContent = '—';
@@ -885,14 +1038,11 @@ function showReaderError(msg) {
   document.getElementById('rPattern').textContent = 'Pattern: —';
   document.getElementById('rMessage').textContent = msg;
   _readerValue = null;
-  toast('Could not parse image');
+  if (clearCanvas && _scanState) drawCropCanvas();
 }
 
 function useReaderResult() {
-  if (!_readerValue) {
-    toast('No detected number yet');
-    return;
-  }
+  if (!_readerValue) { toast('No detected number yet'); return; }
   const input = document.getElementById('pcode');
   input.value = _readerValue;
   generate();
