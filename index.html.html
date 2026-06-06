@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pharmacode Generator & Reader</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f0ede8;--surface:#ffffff;--border:#ddd8d0;
+  --text:#1c1a17;--text2:#6b6358;--text3:#a09890;
+  --accent:#1c1a17;
+  --sans:'Inter',sans-serif;--mono:'JetBrains Mono',monospace;
+}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:13px 28px;display:flex;align-items:center;gap:16px}
+.logo{display:flex;align-items:flex-end;gap:0;height:22px;margin-right:2px}
+.logo b{display:block;background:var(--text)}
+header h1{font-size:13px;font-weight:600;letter-spacing:.01em}
+header .sub{font-size:10px;color:var(--text3);font-family:var(--mono);margin-left:auto}
+.layout{display:grid;grid-template-columns:260px 1fr;flex:1}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);padding:20px 16px;display:flex;flex-direction:column;gap:16px;overflow-y:auto}
+.stitle{font-size:9px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--text3)}
+.field{display:flex;flex-direction:column;gap:4px}
+label{font-size:11px;color:var(--text2);font-weight:500}
+input[type=number],input[type=text]{border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--mono);font-size:14px;font-weight:500;padding:8px 10px;border-radius:5px;width:100%;outline:none;transition:border-color .15s}
+input[type=number]:focus,input[type=text]:focus{border-color:#888}
+.pattern-status{font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.5;margin-top:6px}
+input[type=file]{border:1px dashed var(--border);background:var(--bg);color:var(--text2);font-family:var(--sans);font-size:10px;padding:8px;border-radius:5px;width:100%}
+.divider{height:1px;background:var(--border)}
+.note{background:#fafaf8;border:1px solid var(--border);border-radius:5px;padding:9px 11px;font-size:10px;color:var(--text2);line-height:1.6}
+.note strong{color:var(--text);font-weight:600}
+.btn{font-family:var(--sans);font-size:11px;font-weight:600;padding:9px 14px;border-radius:5px;border:1.5px solid;cursor:pointer;transition:all .15s;letter-spacing:.01em;text-align:center;display:block;width:100%}
+.btn-primary{background:var(--text);color:#fff;border-color:var(--text)}
+.btn-primary:hover{background:#333}
+.btn-outline{background:transparent;color:var(--text2);border-color:var(--border)}
+.btn-outline:hover{border-color:#999;background:var(--bg)}
+.dl-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.dl-grid .btn{font-size:11px;padding:8px 4px}
+.canvas-area{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px;gap:24px;min-height:0}
+.preview-card{background:#fff;border:1px solid var(--border);border-radius:4px;padding:32px 40px;display:flex;flex-direction:column;align-items:center;gap:12px}
+#preview-svg{display:block}
+.meta{display:flex;gap:28px;font-family:var(--mono);font-size:10px;color:var(--text3)}
+.meta span{display:flex;flex-direction:column;align-items:center;gap:2px}
+.meta strong{color:var(--text2);font-size:11px}
+.reader-panel{display:none;background:#fff;border:1px solid var(--border);border-radius:4px;padding:14px 16px;width:min(720px,100%);font-size:11px;color:var(--text2);line-height:1.5}
+.reader-panel.show{display:block}
+.reader-panel h2{font-size:12px;color:var(--text);margin-bottom:8px}
+.reader-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:10px 0}
+.reader-grid span{background:#fafaf8;border:1px solid var(--border);border-radius:5px;padding:8px;text-align:center}
+.reader-grid strong{display:block;color:var(--text);font-family:var(--mono);font-size:13px;margin-bottom:2px}
+.bar-sequence{font-family:var(--mono);background:#fafaf8;border:1px solid var(--border);border-radius:5px;padding:8px;overflow-wrap:anywhere;color:var(--text)}
+.reader-actions{display:flex;gap:8px;margin-top:10px}
+.reader-actions .btn{width:auto;min-width:140px}
+#scan-canvas{display:block;max-width:100%;height:auto;border:1px solid var(--border);background:#fff;margin-top:10px}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(6px);background:#1c1a17;color:#fff;font-size:11px;font-family:var(--mono);padding:6px 16px;border-radius:20px;opacity:0;transition:all .2s;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+
+/* ── Mobile-first / iPhone compatibility ───────────────────── */
+.mobile-hint{display:none}
+.camera-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.file-pill{position:relative;overflow:hidden}
+.file-pill input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+.file-pill span{display:block}
+@media (max-width: 760px){
+  body{min-height:100svh}
+  header{position:sticky;top:0;z-index:10;padding:12px 14px;gap:10px;align-items:center}
+  header h1{font-size:12px;line-height:1.2}
+  header .sub{display:none}
+  .logo{height:18px;transform:scale(.82);transform-origin:left center;margin-right:-12px}
+  .layout{display:flex;flex-direction:column}
+  .sidebar{order:2;border-right:0;border-top:1px solid var(--border);padding:14px;gap:14px;overflow:visible}
+  .canvas-area{order:1;padding:14px;gap:12px;justify-content:flex-start}
+  .preview-card{width:100%;padding:18px 10px;overflow-x:auto;align-items:center}
+  #preview-svg{max-width:100%;height:auto}
+  .meta{width:100%;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:9px}
+  .meta span{background:#fafaf8;border:1px solid var(--border);border-radius:5px;padding:7px 3px}
+  .reader-panel{width:100%;padding:12px;font-size:10.5px}
+  .reader-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .reader-actions{flex-direction:column}
+  .reader-actions .btn{width:100%;min-width:0}
+  .dl-grid{grid-template-columns:repeat(2,1fr)}
+  .camera-grid{grid-template-columns:1fr}
+  .btn{font-size:12px;padding:11px 14px;min-height:42px}
+  input[type=number],input[type=text],input[type=file]{font-size:16px;padding:11px 12px;min-height:42px}
+  label{font-size:12px}
+  .stitle{font-size:9.5px}
+  .note{font-size:10px}
+  .mobile-hint{display:block}
+  .toast{bottom:14px;width:calc(100% - 28px);text-align:center}
+}
+
+</style>
+</head>
+<body>
+
+<header>
+  <!-- Mini pharmacode logo: N W N N W N W -->
+  <div class="logo">
+    <b style="width:3px;height:22px"></b><b style="width:2px;height:22px;background:transparent"></b>
+    <b style="width:9px;height:22px"></b><b style="width:2px;height:22px;background:transparent"></b>
+    <b style="width:3px;height:22px"></b><b style="width:2px;height:22px;background:transparent"></b>
+    <b style="width:3px;height:22px"></b><b style="width:2px;height:22px;background:transparent"></b>
+    <b style="width:9px;height:22px"></b><b style="width:2px;height:22px;background:transparent"></b>
+    <b style="width:3px;height:22px"></b><b style="width:2px;height:22px;background:transparent"></b>
+    <b style="width:9px;height:22px"></b>
+  </div>
+  <h1>Pharmacode Generator & Reader</h1>
+  <div class="sub">Laetus Standard · ISO 15416</div>
+</header>
+
+<div class="layout">
+  <div class="sidebar">
+
+    <div>
+      <div class="stitle" style="margin-bottom:10px">Encode Value</div>
+      <div class="field">
+        <label>Pharmacode number (1 – 131070)</label>
+        <input type="number" id="pcode" value="1" min="1" max="131070" />
+      </div>
+    </div>
+
+    <div>
+      <div class="stitle" style="margin-bottom:8px">Decode Pattern</div>
+      <div class="field">
+        <label>Enter N/W pattern, example: NNNNWNWWNNN</label>
+        <input type="text" id="patternInput" placeholder="N W N W or NNNNWNWWNNN" autocomplete="off" />
+      </div>
+      <button class="btn btn-outline" style="margin-top:8px" onclick="decodeManualPattern()">Decode Pattern</button>
+      <div class="pattern-status" id="patternStatus">Type N for narrow and W for wide.</div>
+    </div>
+
+    <div class="note" style="font-size:9.5px">
+      <strong>Range note:</strong> This tool can generate 1–131070 as requested.
+      In common one-track Pharmacode validation, 1–2 are test-only single-bar outputs;
+      industrially documented Pharmacode normally starts at 3.
+    </div>
+
+    <div class="note">
+      <strong>Standard dimensions (Laetus spec):</strong><br>
+      Thin bar (a1) = 0.5 mm<br>
+      Thick bar (b1) = 1.5 mm &nbsp;→ ratio <strong>3:1</strong><br>
+      Gap (c1) = 1.0 mm<br>
+      Height (e1) = 8.0 mm minimum<br>
+      Colors: black bars, white background
+    </div>
+
+    <div class="divider"></div>
+
+    <button class="btn btn-primary" onclick="generate()">Generate</button>
+
+    <div>
+      <div class="stitle" style="margin-bottom:8px">Download Vector</div>
+      <div class="dl-grid">
+        <button class="btn btn-outline" onclick="dlSVG()">↓ SVG</button>
+        <button class="btn btn-outline" onclick="dlPNG()">↓ PNG</button>
+        <button class="btn btn-outline" onclick="dlEPS()">↓ EPS</button>
+        <button class="btn btn-outline" onclick="dlPDF()">↓ PDF</button>
+      </div>
+    </div>
+
+    <div class="note" style="font-size:9.5px">
+      Downloads are true-to-size at <strong>96 dpi</strong>.<br>
+      SVG is resolution-independent (infinite scale).<br>
+      PNG is raster image format for quick sharing/reading.<br>
+      EPS / PDF are print-ready vector files.
+    </div>
+
+    <div class="divider"></div>
+
+    <div>
+      <div class="stitle" style="margin-bottom:8px">Read From Photo / Camera</div>
+      <div class="field">
+        <label>Upload saved Pharmacode image</label>
+        <input type="file" id="photoInput" accept="image/*" onchange="parseUploadedImage()" />
+      </div>
+      <div class="camera-grid">
+        <label class="btn btn-primary file-pill">
+          <span>📷 Open Camera</span>
+          <input type="file" id="cameraInput" accept="image/*" capture="environment" onchange="parseCameraImage()" />
+        </label>
+        <button class="btn btn-outline" onclick="parseUploadedImage()">Parse Upload</button>
+      </div>
+    </div>
+
+    <div class="note mobile-hint" style="font-size:9.5px">
+      iPhone tip: use Safari, tap <strong>Open Camera</strong>, keep the barcode upright and fill the frame with the bars.
+    </div>
+
+    <div class="note" style="font-size:9.5px">
+      Best result: upright, straight, black bars on a white background.
+      The reader shows the standard right-to-left Pharmacode value plus the opposite orientation for checking.
+    </div>
+
+  </div>
+
+  <div class="canvas-area">
+    <div class="preview-card">
+      <svg id="preview-svg" width="200" height="80"></svg>
+    </div>
+    <div class="meta">
+      <span><strong id="mVal">—</strong>Value</span>
+      <span><strong id="mDecode">—</strong>Decoded</span>
+      <span><strong id="mBars">—</strong>Bars</span>
+      <span><strong id="mW">—</strong>Width</span>
+      <span><strong id="mH">—</strong>Height</span>
+    </div>
+
+    <div class="reader-panel" id="readerPanel">
+      <h2>Photo Reader Result</h2>
+      <div class="reader-grid">
+        <span><strong id="rValue">—</strong>Standard value</span>
+        <span><strong id="rAlt">—</strong>Opposite value</span>
+        <span><strong id="rBars">—</strong>Bars</span>
+        <span><strong id="rConfidence">—</strong>Confidence</span>
+      </div>
+      <div class="bar-sequence" id="rPattern">Pattern: —</div>
+      <div id="rMessage" style="margin-top:8px">Upload an upright pharmacode image, then click Parse Photo.</div>
+      <div class="reader-actions">
+        <button class="btn btn-outline" id="useReadBtn" onclick="useReaderResult()">Use detected number</button>
+      </div>
+      <canvas id="scan-canvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── Pharmacode encoding ──────────────────────────────────────
+   Correct one-track PHARMA-CODE / Pharmacode logic:
+   - The printed bars are decoded by the scanner from RIGHT to LEFT.
+   - At position p from the right:
+       thin/narrow bar  = 1 × 2^p
+       thick/wide bar   = 2 × 2^p
+   - This is NOT simple decimal-to-binary where 1=thick and 0=thin.
+   - To encode a value, we build the bars from right-to-left:
+       If Z is odd  → thin/narrow bar,  Z = (Z − 1) / 2
+       If Z is even → thick/wide bar,   Z = (Z − 2) / 2
+     Then reverse the array for left-to-right printing.
+   Tool range: 1–131070. Common one-track Pharmacode validation starts at 3; values 1–2 are test-only single-bar outputs.
+   ──────────────────────────────────────────────────────────── */
+function normalizeValue(v) {
+  return Math.max(1, Math.min(131070, Math.round(Number(v) || 1)));
+}
+
+function encode(n) {
+  n = normalizeValue(n);
+  const bars = []; // 0=thin/narrow, 1=thick/wide, built from right to left
+  let Z = n;
+
+  while (Z > 0) {
+    if (Z % 2 === 1) {
+      bars.push(0);               // thin/narrow
+      Z = Math.floor((Z - 1) / 2);
+    } else {
+      bars.push(1);               // thick/wide
+      Z = Math.floor((Z - 2) / 2);
+    }
+  }
+
+  return bars.reverse(); // printed left-to-right
+}
+
+// QA helper: confirms what a right-to-left Pharmacode scanner should read.
+function decodePharmacode(bars) {
+  return bars
+    .slice()
+    .reverse()
+    .reduce((sum, bar, pos) => sum + (bar ? 2 : 1) * Math.pow(2, pos), 0);
+}
+
+
+function parsePatternText(raw) {
+  const cleaned = String(raw || '').toUpperCase().replace(/[^NW]/g, '');
+  if (!cleaned) {
+    throw new Error('Enter a pattern using N and W only. Example: NNNNWNWWNNN');
+  }
+  const bars = [...cleaned].map(ch => ch === 'W' ? 1 : 0);
+  const value = decodePharmacode(bars);
+  if (value < 1 || value > 131070) {
+    throw new Error(`Decoded value ${value} is outside 1–131070.`);
+  }
+  return { cleaned, bars, value };
+}
+
+function decodeManualPattern() {
+  const box = document.getElementById('patternInput');
+  const status = document.getElementById('patternStatus');
+  try {
+    const { cleaned, bars, value } = parsePatternText(box.value);
+    const opposite = decodePharmacode(bars.slice().reverse());
+    box.value = cleaned.replace(/(.{4})/g, '$1 ').trim();
+    status.textContent = `Decoded value: ${value} | Opposite orientation: ${opposite} | Bars: ${bars.length}`;
+    document.getElementById('pcode').value = value;
+    generate();
+    toast(`Pattern decoded as ${value}`);
+  } catch (err) {
+    status.textContent = err.message;
+    toast('Pattern not valid');
+  }
+}
+
+/* ── Standard Laetus dimensions (screen pixels at ~96 dpi) ───
+   Real spec: a1=0.5mm, b1=1.5mm (3:1), c1=1.0mm, e1≥8mm
+   At 96dpi: 1mm = 3.78px → scale ×3.78
+   a1 = 0.5×3.78 ≈ 1.89 → use 2px
+   b1 = 1.5×3.78 ≈ 5.67 → use 6px   (3:1 ratio preserved)
+   c1 = 1.0×3.78 ≈ 3.78 → use 4px
+   e1 = 8.0×3.78 ≈ 30px → use 32px  (minimum; we use 40px for clarity)
+   quiet zone = 10× module ≈ 20px each side
+   ──────────────────────────────────────────────────────────── */
+const NARROW = 2;   // px  thin bar
+const WIDE   = 6;   // px  thick bar (3× narrow — Laetus spec)
+const GAP    = 4;   // px  inter-bar gap
+const BAR_H  = 40;  // px  bar height (≥8mm)
+const QUIET  = 20;  // px  quiet zone each side
+const TEXT_H = 18;  // px  space below bars for human-readable number
+
+let _svg = '', _W = 0, _H = 0;
+
+function buildSVG(bars, value) {
+  const bw    = bars.reduce((s, b) => s + (b ? WIDE : NARROW), 0);
+  const gapW  = (bars.length - 1) * GAP;
+  const svgW  = bw + gapW + QUIET * 2;
+  const svgH  = BAR_H + QUIET * 2 + TEXT_H;
+
+  // White background
+  let body = `<rect width="${svgW}" height="${svgH}" fill="#ffffff"/>`;
+
+  // Bars — all black, separated by white gaps
+  let x = QUIET;
+  bars.forEach((bar, i) => {
+    const w = bar ? WIDE : NARROW;
+    body += `<rect x="${x}" y="${QUIET}" width="${w}" height="${BAR_H}" fill="#000000"/>`;
+    x += w + GAP; // gap after every bar (last gap is inside quiet zone)
+  });
+
+  // Human-readable number centered below bars
+  const ty = QUIET + BAR_H + 13;
+  body += `<text x="${svgW/2}" y="${ty}" text-anchor="middle" `
+        + `font-family="monospace" font-size="11" fill="#000000" letter-spacing="1">${value}</text>`;
+
+  return { body, svgW, svgH };
+}
+
+function generate() {
+  const input = document.getElementById('pcode');
+  const n     = normalizeValue(input.value);
+  input.value = n;
+
+  const bars = encode(n);
+  const decoded = decodePharmacode(bars);
+
+  if (decoded !== n) {
+    toast(`Encoding error: generated code decodes as ${decoded}`);
+    return;
+  }
+
+  const { body, svgW, svgH } = buildSVG(bars, n);
+
+  const el = document.getElementById('preview-svg');
+  el.setAttribute('width',   svgW);
+  el.setAttribute('height',  svgH);
+  el.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+  el.innerHTML = body;
+
+  _W = svgW; _H = svgH;
+  _svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" `
+       + `viewBox="0 0 ${svgW} ${svgH}">${body}</svg>`;
+
+  document.getElementById('mVal').textContent    = n;
+  document.getElementById('mDecode').textContent = decoded;
+  document.getElementById('mBars').textContent   = bars.length;
+  document.getElementById('mW').textContent      = svgW + 'px';
+  document.getElementById('mH').textContent      = svgH + 'px';
+}
+
+/* ── Download helper ──────────────────────────────────────── */
+function save(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 300);
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+/* ── SVG download ─────────────────────────────────────────── */
+function dlSVG() {
+  if (!_svg) return;
+  save(_svg, `pharmacode-${document.getElementById('pcode').value}.svg`, 'image/svg+xml;charset=utf-8');
+  toast('SVG saved ✓');
+}
+
+
+/* ── PNG download ─────────────────────────────────────────── */
+function dlPNG() {
+  if (!_svg) return;
+
+  const n = document.getElementById('pcode').value;
+  const scale = 4; // Higher resolution PNG while preserving the same proportions.
+
+  const svgBlob = new Blob([_svg], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(svgBlob);
+  const img = new Image();
+
+  img.onload = function () {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(_W * scale);
+    canvas.height = Math.round(_H * scale);
+
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(function (blob) {
+      URL.revokeObjectURL(url);
+      if (!blob) {
+        toast('PNG export failed');
+        return;
+      }
+
+      const pngUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = pngUrl;
+      a.download = `pharmacode-${n}.png`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(pngUrl);
+      }, 300);
+      toast('PNG saved ✓');
+    }, 'image/png');
+  };
+
+  img.onerror = function () {
+    URL.revokeObjectURL(url);
+    toast('PNG export failed');
+  };
+
+  img.src = url;
+}
+
+/* ── EPS download ─────────────────────────────────────────── */
+function dlEPS() {
+  if (!_svg) return;
+  const n  = document.getElementById('pcode').value;
+  const W  = _W, H = _H;
+  const doc = new DOMParser().parseFromString(_svg, 'image/svg+xml');
+
+  let ps = `%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 ${W} ${H}
+%%HiResBoundingBox: 0.000000 0.000000 ${W}.000000 ${H}.000000
+%%Title: Pharmacode ${n}
+%%Creator: Pharmacode Generator (Laetus Standard)
+%%CreationDate: ${new Date().toISOString()}
+%%Pages: 1
+%%LanguageLevel: 2
+%%DocumentData: Clean7Bit
+%%EndComments
+%%BeginProlog
+/R {
+  4 dict begin
+  /rh exch def /rw exch def /ry exch def /rx exch def
+  newpath rx ry moveto rw 0 rlineto 0 rh rlineto rw neg 0 rlineto closepath fill
+  end
+} def
+%%EndProlog
+%%Page: 1 1
+gsave
+`;
+
+  doc.querySelectorAll('rect').forEach(r => {
+    const x  = +(r.getAttribute('x')      || 0);
+    const y  = +(r.getAttribute('y')      || 0);
+    const rw = +(r.getAttribute('width')  || 0);
+    const rh = +(r.getAttribute('height') || 0);
+    const fill = r.getAttribute('fill') || '#000000';
+    if (rw <= 0) return;
+    // Set color
+    const hex = fill.replace('#','');
+    const red   = parseInt(hex.slice(0,2),16)/255;
+    const green = parseInt(hex.slice(2,4),16)/255;
+    const blue  = parseInt(hex.slice(4,6),16)/255;
+    // Flip Y axis for PostScript (origin bottom-left)
+    const psy = H - y - rh;
+    ps += `${red.toFixed(4)} ${green.toFixed(4)} ${blue.toFixed(4)} setrgbcolor\n`;
+    ps += `${x.toFixed(3)} ${psy.toFixed(3)} ${rw.toFixed(3)} ${rh.toFixed(3)} R\n`;
+  });
+
+  // Handle text elements
+  doc.querySelectorAll('text').forEach(t => {
+    const x    = +(t.getAttribute('x') || 0);
+    const y    = +(t.getAttribute('y') || 0);
+    const fs   = +(t.getAttribute('font-size') || 11);
+    const txt  = t.textContent || '';
+    const safe = txt.replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');
+    // Approximate centering: Courier char width ≈ fs * 0.6
+    const approxW = txt.length * fs * 0.6;
+    const tx = x - approxW / 2;
+    const psy = H - y;
+    ps += `0 0 0 setrgbcolor\n`;
+    ps += `/Courier findfont ${fs} scalefont setfont\n`;
+    ps += `${tx.toFixed(1)} ${psy.toFixed(1)} moveto (${safe}) show\n`;
+  });
+
+  ps += `grestore\nshowpage\n%%Trailer\n%%EOF\n`;
+  save(ps, `pharmacode-${n}.eps`, 'application/postscript');
+  toast('EPS saved ✓');
+}
+
+/* ── PDF download ─────────────────────────────────────────── */
+function dlPDF() {
+  if (!_svg) return;
+  const n   = document.getElementById('pcode').value;
+  const W   = _W, H = _H;
+  const doc = new DOMParser().parseFromString(_svg, 'image/svg+xml');
+
+  // Build content stream
+  let stream = '';
+  doc.querySelectorAll('rect').forEach(r => {
+    const x  = +(r.getAttribute('x')      || 0);
+    const y  = +(r.getAttribute('y')      || 0);
+    const rw = +(r.getAttribute('width')  || 0);
+    const rh = +(r.getAttribute('height') || 0);
+    const fill = (r.getAttribute('fill') || '#000000').replace('#','');
+    if (rw <= 0) return;
+    const red   = (parseInt(fill.slice(0,2),16)/255).toFixed(4);
+    const green = (parseInt(fill.slice(2,4),16)/255).toFixed(4);
+    const blue  = (parseInt(fill.slice(4,6),16)/255).toFixed(4);
+    const py = H - y - rh; // PDF Y is bottom-up
+    stream += `${red} ${green} ${blue} rg\n`;
+    stream += `${x.toFixed(3)} ${py.toFixed(3)} ${rw.toFixed(3)} ${rh.toFixed(3)} re f\n`;
+  });
+
+  // Encode stream
+  const enc  = new TextEncoder();
+  const sLen = enc.encode(stream).length;
+
+  // Build PDF objects as a simple string
+  // Object 1: Catalog, 2: Pages, 3: Page, 4: Content stream
+  let pdf = '%PDF-1.4\n%\xe2\xe3\xcf\xd3\n'; // header with binary comment
+
+  const offsets = [];
+
+  function addObj(n, body) {
+    offsets.push(pdf.length);
+    pdf += `${n} 0 obj\n${body}\nendobj\n`;
+  }
+
+  addObj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  addObj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  addObj(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Contents 4 0 R /Resources << >> >>`);
+
+  offsets.push(pdf.length);
+  pdf += `4 0 obj\n<< /Length ${sLen} >>\nstream\n${stream}\nendstream\nendobj\n`;
+
+  // Cross-reference table
+  const xrefPos = pdf.length;
+  pdf += `xref\n0 5\n0000000000 65535 f \n`;
+  offsets.forEach(o => { pdf += String(o).padStart(10,'0') + ' 00000 n \n'; });
+  pdf += `trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`;
+
+  save(pdf, `pharmacode-${n}.pdf`, 'application/pdf');
+  toast('PDF saved ✓');
+}
+
+
+/* ── Pharmacode photo reader ─────────────────────────────────
+   This simple reader works inside the browser:
+   1) Load the uploaded image into a canvas.
+   2) Convert pixels to grayscale and calculate an Otsu threshold.
+   3) Find the strongest horizontal band of dark vertical bars.
+   4) Project dark pixels vertically to detect bar runs.
+   5) Classify detected bar widths as narrow/wide without deleting valid thin bars.
+   6) Decode using the same right-to-left Pharmacode rule.
+   Practical limits: the photo should be upright and not heavily skewed.
+   A single-bar image cannot be reliably classified as narrow vs wide without a physical scale/reference.
+   ──────────────────────────────────────────────────────────── */
+let _readerValue = null;
+
+function median(arr) {
+  if (!arr.length) return 0;
+  const a = arr.slice().sort((x, y) => x - y);
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+}
+
+function otsuThreshold(gray) {
+  const hist = new Array(256).fill(0);
+  gray.forEach(v => hist[v]++);
+  const total = gray.length;
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+
+  let sumB = 0, wB = 0, maxVar = -1, threshold = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (!wB) continue;
+    const wF = total - wB;
+    if (!wF) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const between = wB * wF * Math.pow(mB - mF, 2);
+    if (between > maxVar) {
+      maxVar = between;
+      threshold = t;
+    }
+  }
+  return threshold;
+}
+
+function groupRuns(flags) {
+  const runs = [];
+  let start = -1;
+  for (let i = 0; i < flags.length; i++) {
+    if (flags[i] && start === -1) start = i;
+    if ((!flags[i] || i === flags.length - 1) && start !== -1) {
+      const end = flags[i] ? i : i - 1;
+      runs.push({ start, end, width: end - start + 1 });
+      start = -1;
+    }
+  }
+  return runs;
+}
+
+function classifyBarWidths(widths, gaps) {
+  if (widths.length === 1) {
+    return {
+      bars: null,
+      confidence: 'Ambiguous',
+      message: 'Only one bar was detected. From a photo alone, one bar cannot be reliably classified as narrow value 1 or wide value 2 without a scale/reference.'
+    };
+  }
+
+  const minW = Math.min(...widths);
+  const maxW = Math.max(...widths);
+  const medGap = median(gaps);
+
+  // If all detected bars have almost the same width, infer narrow/wide from the normal Laetus gap relationship where gap ≈ 2×narrow and ≈ 0.67×wide.
+  if (maxW / Math.max(minW, 1) < 1.55) {
+    const medBar = median(widths);
+    const ratioToGap = medGap ? medBar / medGap : 0;
+    const allWide = ratioToGap > 1.05;
+    return {
+      bars: widths.map(() => allWide ? 1 : 0),
+      confidence: ratioToGap < 0.8 || ratioToGap > 1.3 ? 'Medium' : 'Low',
+      message: allWide
+        ? 'All bars look similar and wider than the gaps, so they were interpreted as wide bars.'
+        : 'All bars look similar and narrower than the gaps, so they were interpreted as narrow bars.'
+    };
+  }
+
+  // Two-cluster classification for normal mixed narrow/wide codes.
+  let c1 = minW, c2 = maxW;
+  for (let iter = 0; iter < 12; iter++) {
+    const g1 = [], g2 = [];
+    widths.forEach(w => (Math.abs(w - c1) <= Math.abs(w - c2) ? g1 : g2).push(w));
+    if (g1.length) c1 = g1.reduce((a, b) => a + b, 0) / g1.length;
+    if (g2.length) c2 = g2.reduce((a, b) => a + b, 0) / g2.length;
+  }
+  const narrowCenter = Math.min(c1, c2);
+  const wideCenter = Math.max(c1, c2);
+  const cutoff = (narrowCenter + wideCenter) / 2;
+  const ratio = wideCenter / Math.max(narrowCenter, 1);
+  const bars = widths.map(w => w > cutoff ? 1 : 0);
+
+  let confidence = 'High';
+  if (ratio < 2.0 || ratio > 4.5) confidence = 'Low';
+  else if (ratio < 2.4 || ratio > 3.8) confidence = 'Medium';
+
+  return {
+    bars,
+    confidence,
+    message: `Detected narrow/wide width ratio ≈ ${ratio.toFixed(2)}:1.`
+  };
+}
+
+function parseImageFile(file, emptyMessage = 'Choose an image first') {
+  if (!file) {
+    toast(emptyMessage);
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => scanPharmacodeImage(img);
+    img.onerror = () => toast('Could not load image');
+    img.src = e.target.result;
+  };
+  reader.onerror = () => toast('Could not read image');
+  reader.readAsDataURL(file);
+}
+
+function parseUploadedImage() {
+  const fileInput = document.getElementById('photoInput');
+  const file = fileInput.files && fileInput.files[0];
+  parseImageFile(file, 'Choose an image first');
+}
+
+function parseCameraImage() {
+  const fileInput = document.getElementById('cameraInput');
+  const file = fileInput.files && fileInput.files[0];
+  parseImageFile(file, 'Take a photo first');
+}
+
+function scanPharmacodeImage(img) {
+  const panel = document.getElementById('readerPanel');
+  const canvas = document.getElementById('scan-canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+  const maxDim = 1400;
+  const scale = Math.min(1, maxDim / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+  const w = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+  const h = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+
+  canvas.width = w;
+  canvas.height = h;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  panel.classList.add('show');
+
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+  const gray = new Uint8Array(w * h);
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+    gray[p] = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+  }
+
+  const otsu = otsuThreshold(gray);
+  const threshold = Math.min(190, Math.max(40, otsu + 10));
+  const rowCounts = new Array(h).fill(0);
+
+  for (let y = 0; y < h; y++) {
+    let count = 0;
+    for (let x = 0; x < w; x++) {
+      if (gray[y * w + x] < threshold) count++;
+    }
+    rowCounts[y] = count;
+  }
+
+  const maxRow = Math.max(...rowCounts);
+  if (maxRow < Math.max(3, w * 0.002)) {
+    showReaderError('No dark barcode-like area was detected. Try a clearer image with black bars on white background.');
+    return;
+  }
+
+  const rowFlags = rowCounts.map(c => c >= Math.max(3, maxRow * 0.30));
+  const rowRuns = groupRuns(rowFlags).filter(r => r.width >= Math.max(4, h * 0.01));
+  if (!rowRuns.length) {
+    showReaderError('Could not isolate the barcode row area. Try cropping closer to the bars.');
+    return;
+  }
+
+  // Pick the row band with the highest dark-pixel mass and enough height.
+  let bestRun = rowRuns[0], bestScore = -1;
+  rowRuns.forEach(r => {
+    const mass = rowCounts.slice(r.start, r.end + 1).reduce((a, b) => a + b, 0);
+    const score = mass * Math.sqrt(r.width);
+    if (score > bestScore) { bestScore = score; bestRun = r; }
+  });
+
+  const padY = Math.max(1, Math.round(bestRun.width * 0.08));
+  const y1 = Math.max(0, bestRun.start - padY);
+  const y2 = Math.min(h - 1, bestRun.end + padY);
+  const bandH = y2 - y1 + 1;
+
+  const colCounts = new Array(w).fill(0);
+  for (let x = 0; x < w; x++) {
+    let count = 0;
+    for (let y = y1; y <= y2; y++) {
+      if (gray[y * w + x] < threshold) count++;
+    }
+    colCounts[x] = count;
+  }
+
+  const maxCol = Math.max(...colCounts);
+  const colFlags = colCounts.map(c => c >= Math.max(2, maxCol * 0.45));
+  let barRuns = groupRuns(colFlags).filter(r => r.width >= Math.max(1, Math.round(w * 0.0006)));
+
+  // Keep true thin bars. Earlier versions removed runs below ~35% of the median
+  // width; with real/screenshot images that can accidentally delete valid narrow
+  // bars. Pharmacode narrow:wide is normally about 1:3, so a valid narrow bar may
+  // be only 33% of a wide bar. Only remove extreme pixel noise instead.
+  barRuns = barRuns.filter(r => r.width >= 2 || r.width >= Math.round(w * 0.0008));
+
+  // Merge accidental 1–2 px cuts inside the same printed bar caused by anti-aliasing
+  // or faint vertical highlights. Do not merge normal Pharmacode gaps.
+  const mergeGap = Math.max(1, Math.round(w * 0.0008));
+  const mergedRuns = [];
+  barRuns.forEach(r => {
+    const last = mergedRuns[mergedRuns.length - 1];
+    const gap = last ? r.start - last.end - 1 : Infinity;
+    if (last && gap <= mergeGap) {
+      last.end = r.end;
+      last.width = last.end - last.start + 1;
+    } else {
+      mergedRuns.push({ ...r });
+    }
+  });
+  barRuns = mergedRuns;
+
+  if (!barRuns.length) {
+    showReaderError('No vertical bars were detected. Try a higher contrast or more upright image.');
+    return;
+  }
+
+  const widths = barRuns.map(r => r.width);
+  const gaps = [];
+  for (let i = 1; i < barRuns.length; i++) gaps.push(barRuns[i].start - barRuns[i - 1].end - 1);
+
+  const classified = classifyBarWidths(widths, gaps);
+  if (!classified.bars) {
+    document.getElementById('rValue').textContent = '—';
+    document.getElementById('rAlt').textContent = '—';
+    document.getElementById('rBars').textContent = barRuns.length;
+    document.getElementById('rConfidence').textContent = classified.confidence;
+    document.getElementById('rPattern').textContent = 'Pattern: ambiguous single bar';
+    document.getElementById('rMessage').textContent = classified.message;
+    _readerValue = null;
+    drawDetectionOverlay(ctx, barRuns, y1, y2, w, h);
+    toast('Reader result is ambiguous');
+    return;
+  }
+
+  const bars = classified.bars;
+  const value = decodePharmacode(bars);
+  const opposite = decodePharmacode(bars.slice().reverse());
+  const pattern = bars.map(b => b ? 'W' : 'N').join(' ');
+
+  _readerValue = value;
+  document.getElementById('rValue').textContent = value;
+  document.getElementById('rAlt').textContent = opposite;
+  document.getElementById('rBars').textContent = bars.length;
+  document.getElementById('rConfidence').textContent = classified.confidence;
+  document.getElementById('rPattern').textContent = `Pattern: ${pattern}`;
+  document.getElementById('rMessage').textContent = `${classified.message} Standard Pharmacode scanning is right-to-left; use the opposite value only if the photo/code is reversed.`;
+
+  drawDetectionOverlay(ctx, barRuns, y1, y2, w, h);
+  toast(`Parsed as ${value}`);
+}
+
+function drawDetectionOverlay(ctx, barRuns, y1, y2, w, h) {
+  ctx.save();
+  ctx.lineWidth = Math.max(1, Math.round(Math.max(w, h) / 500));
+  ctx.strokeStyle = 'rgba(28,26,23,0.75)';
+  ctx.strokeRect(0.5, y1 + 0.5, w - 1, y2 - y1);
+  ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+  barRuns.forEach(r => ctx.strokeRect(r.start + 0.5, y1 + 0.5, r.width, y2 - y1));
+  ctx.restore();
+}
+
+function showReaderError(msg) {
+  document.getElementById('readerPanel').classList.add('show');
+  document.getElementById('rValue').textContent = '—';
+  document.getElementById('rAlt').textContent = '—';
+  document.getElementById('rBars').textContent = '—';
+  document.getElementById('rConfidence').textContent = '—';
+  document.getElementById('rPattern').textContent = 'Pattern: —';
+  document.getElementById('rMessage').textContent = msg;
+  _readerValue = null;
+  toast('Could not parse image');
+}
+
+function useReaderResult() {
+  if (!_readerValue) {
+    toast('No detected number yet');
+    return;
+  }
+  const input = document.getElementById('pcode');
+  input.value = _readerValue;
+  generate();
+  toast(`Loaded ${_readerValue} into generator`);
+}
+
+// Generate on load
+generate();
+
+// Re-generate on Enter key
+document.getElementById('pcode').addEventListener('keydown', e => {
+  if (e.key === 'Enter') generate();
+});
+
+document.getElementById('pcode').addEventListener('input', () => {
+  generate();
+});
+
+document.getElementById('patternInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') decodeManualPattern();
+});
+</script>
+</body>
+</html>
